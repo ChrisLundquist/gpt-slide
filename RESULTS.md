@@ -54,7 +54,45 @@ The dying neurons' forward-pass contributions do not help the surviving neurons
 acquire features — blocking those contributions (activation-zeroing) makes no
 meaningful difference.
 
-## Next: Phase 2 Fallback
+## Phase 2 Fallback: Compression Comparison
 
-Compare asymmetric decay against distillation and structured GMP to determine
-whether it's competitive as a compression method even without migration.
+### Results
+
+| Method | Add Acc | Mul Acc | Effective Width | Wall Time |
+|--------|---------|---------|-----------------|-----------|
+| Asymmetric decay (alpha=5) | 99.97% | 97.35% | ~128 active | ~30s |
+| Distillation T=1 | 99.92% | 99.94% | 128 | 28.6s |
+| Distillation T=2 | 99.90% | 99.85% | 128 | 28.6s |
+| Distillation T=4 | 99.96% | 99.97% | 128 | 28.6s |
+| Structured GMP | 99.97% | 100.0% | 131 | 22.4s |
+
+### Verdict
+
+Asymmetric decay **loses to both baselines** on multiplication accuracy (97.35% vs
+99.94-100%) while using 2x the parameter budget. Structured GMP achieves perfect
+accuracy on both tasks with 131 surviving neurons in less training time.
+
+Per the decision matrix: "If asymmetric decay loses to distillation and structured
+GMP on both tasks: stop entirely."
+
+Asymmetric decay does not lose on *both* tasks (addition is competitive), but the
+multiplication gap is large enough (2.6pp) that the method has no practical
+advantage over simpler alternatives.
+
+## Conclusion
+
+1. **Asymmetric weight decay creates directional compaction** — neurons on the
+   high-decay side lose norm while the low-decay side is preserved. The effect is
+   controllable (reversed gradient produces mirror image).
+
+2. **The mechanism is relearning, not migration** — surviving neurons learn from
+   data regardless of whether dying neurons contribute activations. Gate 3's
+   activation-zeroing test showed no migration effect.
+
+3. **As a compression method, asymmetric decay is not competitive** — both
+   knowledge distillation and structured gradual magnitude pruning achieve better
+   accuracy at lower parameter counts in comparable training time.
+
+4. **The Fourier analysis revealed that multiplication mod p does not produce
+   clean Fourier structure** with one-hot encoding and quadratic activation,
+   limiting the scope of the interpretability framework to addition only.
