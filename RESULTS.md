@@ -96,3 +96,48 @@ advantage over simpler alternatives.
 4. **The Fourier analysis revealed that multiplication mod p does not produce
    clean Fourier structure** with one-hot encoding and quadratic activation,
    limiting the scope of the interpretability framework to addition only.
+
+## Experiment A: Single-Task Densification
+
+Tests whether asymmetric decay can densify a grokked addition model using the
+W2 interaction pathway (single output head, single task).
+
+### Results
+
+| Condition | Accuracy | Surviving | Pareto AUC |
+|-----------|----------|-----------|------------|
+| Asymmetric (alpha=5) | 97.91% | 128 | 12.2 |
+| Uniform (baseline) | 99.99% | 128 | 10.6 |
+| Reversed | 97.66% | 128 | 6.3 |
+| Gradient-severed | 98.93% | 116.6 | **18.3** |
+| GMP | 99.99% | 128 | 10.6 |
+| Instant prune | 99.99% | 128 | 10.6 |
+| Scratch W=128 | 99.95% | 128 | **36.3** |
+
+### Key Findings
+
+1. **Asymmetric decay did not kill any neurons.** The optimizer's gradient signal
+   is stronger than the decay pressure — it keeps all 128 neurons alive. GMP and
+   instant prune degenerate to uniform (0 neurons to prune).
+
+2. **The W2 "teaching signal" is counterproductive.** The gradient-severed condition
+   (which blocks gradient flow through dying neurons' W2 columns) is the only
+   condition that actually reduces neuron count (116 surviving) AND achieves the
+   best Pareto AUC (18.3 vs 12.2 for asymmetric, p=0.028). The W2 interaction
+   keeps dying neurons alive instead of letting them die and forcing consolidation.
+
+3. **Scratch training dominates.** A fresh W=128 model trained from scratch has
+   Pareto AUC of 36.3 — 3x better than asymmetric decay (p=0.0005). The grokked
+   weight structure is harder to compress than learning fresh.
+
+4. **Asymmetric decay hurts accuracy.** 97.9% vs 99.99% for uniform. The
+   asymmetric gradient damages useful features without consolidating them.
+
+### Interpretation
+
+The hypothesis that asymmetric decay can drive feature densification via the
+W2 interaction pathway is **falsified**. The gradient interaction does the
+opposite of what's needed — it sustains dying neurons rather than teaching
+surviving neurons. The only condition that achieves actual neuron death
+(gradient-severed) does so by removing the interaction, confirming it's
+the optimizer fighting the decay, not a teaching signal.

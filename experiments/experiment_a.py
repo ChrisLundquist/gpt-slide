@@ -177,7 +177,7 @@ def run_densification(model, condition, alpha=0.0, reverse=False,
     # Pareto AUC (trapezoidal)
     widths = sorted(pareto.keys())
     accs = [pareto[w] for w in widths]
-    result['pareto_auc'] = float(np.trapz(accs, widths))
+    result['pareto_auc'] = float(np.trapezoid(accs, widths))
 
     return result
 
