@@ -27,23 +27,30 @@ class AsymmetricDecay:
             positions = 1.0 - positions
         return self.lambda_base * (1.0 + self.alpha * positions)
 
-    def step(self, W1: torch.Tensor, W2: torch.Tensor, lr: float):
+    def step(self, W1: torch.Tensor, W2_list, lr: float):
         """
         Apply position-dependent decay in-place. Call after optimizer.step().
 
         W1: (hidden_dim, input_dim)  — decay along axis 0 (rows = neurons)
-        W2: (output_dim, hidden_dim) — decay along axis 1 (columns = neurons)
+        W2_list: single tensor or list of tensors, each (output_dim, hidden_dim)
+                 — decay along axis 1 (columns = neurons)
         """
+        if isinstance(W2_list, torch.Tensor):
+            W2_list = [W2_list]
+
         W = W1.shape[0]
-        assert W == W2.shape[1], (
-            f"Hidden dim mismatch: W1.shape[0]={W1.shape[0]}, "
-            f"W2.shape[1]={W2.shape[1]}. Check weight matrix orientation. "
-            f"Expected W1=(hidden, input), W2=(output, hidden)."
-        )
+        for W2 in W2_list:
+            assert W == W2.shape[1], (
+                f"Hidden dim mismatch: W1.shape[0]={W1.shape[0]}, "
+                f"W2.shape[1]={W2.shape[1]}. Check weight matrix orientation. "
+                f"Expected W1=(hidden, input), W2=(output, hidden)."
+            )
+
         mask = self.compute_decay_mask(W).to(W1.device)
 
         if self.apply_to in ('both', 'W1'):
             W1.data.mul_(1.0 - lr * mask.unsqueeze(1))
 
         if self.apply_to in ('both', 'W2'):
-            W2.data.mul_(1.0 - lr * mask.unsqueeze(0))
+            for W2 in W2_list:
+                W2.data.mul_(1.0 - lr * mask.unsqueeze(0))

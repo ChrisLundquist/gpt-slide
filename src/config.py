@@ -34,7 +34,7 @@ class Config:
     converge_var_threshold: float = 1e-4
 
     # Decay
-    lambda_base: float = 1.0
+    lambda_base: float = 0.1  # tuned for 2-layer MLP; 1.0 is too aggressive
     alpha: float = 0.0  # 0 = uniform, 2.0 = asymmetric
     reverse: bool = False
     apply_to: str = 'both'  # 'both', 'W1', 'W2'
@@ -61,7 +61,7 @@ class Config:
 
     @property
     def input_dim(self) -> int:
-        return 2 * self.p + 2
+        return 2 * self.p
 
     @property
     def output_dim(self) -> int:
@@ -105,4 +105,4 @@ STEP3_CONDITIONS = {
 }
 
 # Lambda fallback schedule for grokking failure
-LAMBDA_FALLBACK = [1.0, 0.3, 0.1]
+LAMBDA_FALLBACK = [0.1]

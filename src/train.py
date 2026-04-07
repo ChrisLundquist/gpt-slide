@@ -31,11 +31,11 @@ def set_seed(seed: int):
     torch.backends.cudnn.benchmark = False
 
 
-def evaluate(model, X, y):
+def evaluate(model, X, y, task=None):
     """Full-batch evaluation. Returns (loss, accuracy)."""
     model.eval()
     with torch.no_grad():
-        logits = model(X)
+        logits = model(X, task=task) if task else model(X)
         loss = F.cross_entropy(logits, y)
         acc = (logits.argmax(-1) == y).float().mean()
     return loss.item(), acc.item()
@@ -135,11 +135,11 @@ def train_run(config, starting_model=None, starting_state=None):
         optimizer.zero_grad()
 
         if config.task == 'joint':
-            logits_add = model(add_train_X)
+            logits_add = model(add_train_X, task='add')
             loss_add = F.cross_entropy(logits_add, add_train_y)
-            logits_mul = model(mul_train_X)
+            logits_mul = model(mul_train_X, task='mul')
             loss_mul = F.cross_entropy(logits_mul, mul_train_y)
-            loss = (loss_add + loss_mul) / 2  # average to match single-task gradient scale
+            loss = (loss_add + loss_mul) / 2
         else:
             logits = model(train_X)
             loss = F.cross_entropy(logits, train_y)
@@ -147,8 +147,12 @@ def train_run(config, starting_model=None, starting_state=None):
         loss.backward()
         optimizer.step()
 
-        # External decay
-        decay.step(raw_model.W1, raw_model.W2, config.lr)
+        # External decay — apply to all W2 heads
+        if raw_model._joint:
+            W2s = [raw_model.head_add.weight, raw_model.head_mul.weight]
+        else:
+            W2s = raw_model.W2
+        decay.step(raw_model.W1, W2s, config.lr)
 
         # Weight freeze restore
         if restore_fn:
@@ -160,13 +164,13 @@ def train_run(config, starting_model=None, starting_state=None):
             m = {'step': step, 'train_loss': loss.item()}
 
             if config.task == 'joint':
-                _, acc_add = evaluate(model, add_test_X, add_test_y)
-                _, acc_mul = evaluate(model, mul_test_X, mul_test_y)
+                _, acc_add = evaluate(model, add_test_X, add_test_y, task='add')
+                _, acc_mul = evaluate(model, mul_test_X, mul_test_y, task='mul')
                 m['test_acc_add'] = acc_add
                 m['test_acc_mul'] = acc_mul
 
-                _, train_acc_add = evaluate(model, add_train_X, add_train_y)
-                _, train_acc_mul = evaluate(model, mul_train_X, mul_train_y)
+                _, train_acc_add = evaluate(model, add_train_X, add_train_y, task='add')
+                _, train_acc_mul = evaluate(model, mul_train_X, mul_train_y, task='mul')
                 m['train_acc_add'] = train_acc_add
                 m['train_acc_mul'] = train_acc_mul
             else:
@@ -230,13 +234,13 @@ def train_run(config, starting_model=None, starting_state=None):
     # Final accuracies (use raw_model for weight manipulation in accuracy_after_zeroing)
     raw_model.eval()
     if config.task == 'joint':
-        _, result['final_acc_add'] = evaluate(raw_model, add_test_X, add_test_y)
-        _, result['final_acc_mul'] = evaluate(raw_model, mul_test_X, mul_test_y)
+        _, result['final_acc_add'] = evaluate(raw_model, add_test_X, add_test_y, task='add')
+        _, result['final_acc_mul'] = evaluate(raw_model, mul_test_X, mul_test_y, task='mul')
         for t in [96, 128, 160]:
             result[f'acc_add_zeroed_{t}'] = accuracy_after_zeroing(
-                raw_model, add_test_X, add_test_y, t)
+                raw_model, add_test_X, add_test_y, t, task='add')
             result[f'acc_mul_zeroed_{t}'] = accuracy_after_zeroing(
-                raw_model, mul_test_X, mul_test_y, t)
+                raw_model, mul_test_X, mul_test_y, t, task='mul')
     else:
         _, result['final_acc'] = evaluate(raw_model, test_X, test_y)
 
@@ -266,8 +270,18 @@ def save_result(result: dict, output_dir: str, run_name: str):
         if k.startswith('final_') or k.startswith('acc_'):
             metrics[k] = v
 
+    class _TensorEncoder(json.JSONEncoder):
+        def default(self, obj):
+            if isinstance(obj, torch.Tensor):
+                return obj.item() if obj.numel() == 1 else obj.tolist()
+            if isinstance(obj, np.floating):
+                return float(obj)
+            if isinstance(obj, np.integer):
+                return int(obj)
+            return super().default(obj)
+
     with open(os.path.join(run_dir, 'metrics.json'), 'w') as f:
-        json.dump(metrics, f, indent=2)
+        json.dump(metrics, f, indent=2, cls=_TensorEncoder)
 
     # Energy matrix (binary, for migration analysis)
     if 'final_energy' in result:

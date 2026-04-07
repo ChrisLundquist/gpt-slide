@@ -14,12 +14,13 @@ def test_concat_shapes():
     cat = concatenate_experts(model_a, model_b)
 
     assert cat.W1.shape == (16, 16)   # (8+8, 16)
-    assert cat.W2.shape == (5, 16)    # (5, 8+8)
-    assert cat.b1.shape == (16,)
+    assert cat._joint is True
+    assert cat.head_add.weight.shape == (5, 16)
+    assert cat.head_mul.weight.shape == (5, 16)
     assert cat.hidden_dim == 16
 
 
-def test_concat_preserves_halves():
+def test_concat_preserves_w1():
     model_a = GrokMLP(input_dim=16, hidden_dim=8, output_dim=5)
     model_b = GrokMLP(input_dim=16, hidden_dim=8, output_dim=5)
 
@@ -28,13 +29,12 @@ def test_concat_preserves_halves():
 
     cat = concatenate_experts(model_a, model_b)
 
-    # Left half of W1 should match model_a
     assert torch.allclose(cat.W1.data[:8], W1_a)
-    # Right half should match model_b
     assert torch.allclose(cat.W1.data[8:], W1_b)
 
 
-def test_concat_w2_scaling():
+def test_concat_head_init():
+    """Add head reads from left half, mul head from right half."""
     model_a = GrokMLP(input_dim=16, hidden_dim=8, output_dim=5)
     model_b = GrokMLP(input_dim=16, hidden_dim=8, output_dim=5)
 
@@ -43,13 +43,29 @@ def test_concat_w2_scaling():
 
     cat = concatenate_experts(model_a, model_b)
 
-    # W2 should be scaled by 0.5
-    assert torch.allclose(cat.W2.data[:, :8], W2_a * 0.5)
-    assert torch.allclose(cat.W2.data[:, 8:], W2_b * 0.5)
+    # Add head: left=W2_a, right=zeros
+    assert torch.allclose(cat.head_add.weight.data[:, :8], W2_a)
+    assert (cat.head_add.weight.data[:, 8:] == 0).all()
+
+    # Mul head: left=zeros, right=W2_b
+    assert (cat.head_mul.weight.data[:, :8] == 0).all()
+    assert torch.allclose(cat.head_mul.weight.data[:, 8:], W2_b)
+
+
+def test_concat_forward():
+    model_a = GrokMLP(input_dim=16, hidden_dim=8, output_dim=5)
+    model_b = GrokMLP(input_dim=16, hidden_dim=8, output_dim=5)
+    cat = concatenate_experts(model_a, model_b)
+
+    x = torch.randn(4, 16)
+    out_add = cat(x, task='add')
+    out_mul = cat(x, task='mul')
+    assert out_add.shape == (4, 5)
+    assert out_mul.shape == (4, 5)
 
 
 if __name__ == '__main__':
-    test_concat_shapes()
-    test_concat_preserves_halves()
-    test_concat_w2_scaling()
+    for fn in [test_concat_shapes, test_concat_preserves_w1,
+               test_concat_head_init, test_concat_forward]:
+        fn()
     print("All concat tests passed.")

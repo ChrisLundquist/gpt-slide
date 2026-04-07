@@ -22,12 +22,12 @@ def neuron_fourier_spectrum(W1_row: torch.Tensor, p: int) -> torch.Tensor:
     Returns:
         spectrum: (p,) — normalized power at each frequency
     """
-    w = W1_row[:2 * p].reshape(2, p).float()
+    w = W1_row[:2 * p].float().reshape(2, p)
     W_hat = torch.fft.fft(w, dim=-1)
     power = (W_hat.abs() ** 2).sum(dim=0)  # sum over 2 inputs
     total = power.sum()
     if total < 1e-10:
-        return torch.zeros(p)
+        return torch.zeros(p, device=W1_row.device)
     return power / total
 
 
@@ -92,7 +92,7 @@ def soft_migration_score(energy_before: torch.Tensor, energy_after: torch.Tensor
         (mean_shift, std_shift)
     """
     W = energy_before.shape[0]
-    indices = torch.arange(W, dtype=torch.float32)
+    indices = torch.arange(W, dtype=torch.float32, device=energy_before.device)
     shifts = []
     for f in range(1, p):  # skip DC
         eb, ea = energy_before[:, f], energy_after[:, f]
@@ -107,26 +107,40 @@ def soft_migration_score(energy_before: torch.Tensor, energy_after: torch.Tensor
 
 
 def accuracy_after_zeroing(model, X: torch.Tensor, y: torch.Tensor,
-                           threshold: int) -> float:
+                           threshold: int, task: str = None) -> float:
     """
     Zero columns j >= threshold in W1 (and corresponding W2 columns),
     evaluate accuracy, then restore weights.
     """
-    W1_backup = model.W1.data.clone()
-    W2_backup = model.W2.data.clone()
-    b1_backup = model.b1.data.clone()
+    # Backup all W2 heads
+    backups = {}
+    backups['W1'] = model.W1.data.clone()
+    backups['b1'] = model.b1.data.clone()
+
+    if model._joint:
+        backups['head_add_w'] = model.head_add.weight.data.clone()
+        backups['head_mul_w'] = model.head_mul.weight.data.clone()
+        model.head_add.weight.data[:, threshold:] = 0.0
+        model.head_mul.weight.data[:, threshold:] = 0.0
+    else:
+        backups['W2'] = model.W2.data.clone()
+        model.W2.data[:, threshold:] = 0.0
 
     model.W1.data[threshold:] = 0.0
-    model.W2.data[:, threshold:] = 0.0
     model.b1.data[threshold:] = 0.0
 
     with torch.no_grad():
-        logits = model(X)
+        logits = model(X, task=task) if task else model(X)
         acc = (logits.argmax(-1) == y).float().mean().item()
 
-    model.W1.data.copy_(W1_backup)
-    model.W2.data.copy_(W2_backup)
-    model.b1.data.copy_(b1_backup)
+    # Restore
+    model.W1.data.copy_(backups['W1'])
+    model.b1.data.copy_(backups['b1'])
+    if model._joint:
+        model.head_add.weight.data.copy_(backups['head_add_w'])
+        model.head_mul.weight.data.copy_(backups['head_mul_w'])
+    else:
+        model.W2.data.copy_(backups['W2'])
 
     return acc
 
