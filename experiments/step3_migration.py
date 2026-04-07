@@ -11,6 +11,7 @@ import json
 import torch
 import dataclasses
 
+torch.set_float32_matmul_precision('high')
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from src.config import Config, PHASE1_SEEDS, SEEDS, STEP3_CONDITIONS

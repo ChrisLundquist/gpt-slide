@@ -35,7 +35,7 @@ class Config:
 
     # Decay
     lambda_base: float = 0.1  # tuned for 2-layer MLP; 1.0 is too aggressive
-    alpha: float = 0.0  # 0 = uniform, 2.0 = asymmetric
+    alpha: float = 0.0  # 0 = uniform, 5.0 = asymmetric (tuned for 2-layer MLP)
     reverse: bool = False
     apply_to: str = 'both'  # 'both', 'W1', 'W2'
 
@@ -83,20 +83,20 @@ PHASE1_SEEDS = SEEDS[:4]
 
 # Condition presets for Step 2
 STEP2_CONDITIONS = {
-    'asymmetric': {'alpha': 2.0, 'reverse': False, 'task': 'joint',
+    'asymmetric': {'alpha': 5.0, 'reverse': False, 'task': 'joint',
                    'max_steps': 20_000, 'condition': 'asymmetric'},
     'uniform':    {'alpha': 0.0, 'reverse': False, 'task': 'joint',
                    'max_steps': 20_000, 'condition': 'uniform'},
-    'reversed':   {'alpha': 2.0, 'reverse': True, 'task': 'joint',
+    'reversed':   {'alpha': 5.0, 'reverse': True, 'task': 'joint',
                    'max_steps': 20_000, 'condition': 'reversed'},
 }
 
 # Condition presets for Step 3
 STEP3_CONDITIONS = {
-    'asym_actzeroed':    {'alpha': 2.0, 'reverse': False, 'task': 'joint',
+    'asym_actzeroed':    {'alpha': 5.0, 'reverse': False, 'task': 'joint',
                           'max_steps': 20_000, 'condition': 'asym_actzeroed',
                           'activation_zeroed': True},
-    'asym_frozen':       {'alpha': 2.0, 'reverse': False, 'task': 'joint',
+    'asym_frozen':       {'alpha': 5.0, 'reverse': False, 'task': 'joint',
                           'max_steps': 20_000, 'condition': 'asym_frozen',
                           'weight_frozen': True},
     'uniform_actzeroed': {'alpha': 0.0, 'reverse': False, 'task': 'joint',

@@ -76,22 +76,33 @@ def train_run(config, starting_model=None, starting_state=None):
     device = config.device
 
     # Build or load model
+    joint = (config.task == 'joint')
     if starting_model is not None:
         model = starting_model.to(device)
     elif starting_state is not None:
-        model = GrokMLP(config.input_dim, config.hidden_dim, config.output_dim).to(device)
+        model = GrokMLP(config.input_dim, config.hidden_dim, config.output_dim,
+                        joint=joint).to(device)
         model.load_state_dict(starting_state)
     else:
-        model = GrokMLP(config.input_dim, config.hidden_dim, config.output_dim).to(device)
+        model = GrokMLP(config.input_dim, config.hidden_dim, config.output_dim,
+                        joint=joint).to(device)
 
     # Keep reference to the raw module for weight access (compile wraps it)
     raw_model = model
+
+    # Log model path
+    model_src = 'provided' if starting_model else ('loaded' if starting_state else 'fresh')
+    print(f"  [{config.run_name}] model={model_src} joint={joint} "
+          f"hidden={config.hidden_dim} device={device}", flush=True)
 
     # Compile model if no hooks will be attached (hooks + compile can conflict)
     use_compile = (not config.activation_zeroed and not config.weight_frozen
                    and hasattr(torch, 'compile'))
     if use_compile:
         model = torch.compile(model)
+        print(f"  [{config.run_name}] torch.compile enabled", flush=True)
+    elif config.activation_zeroed or config.weight_frozen:
+        print(f"  [{config.run_name}] torch.compile disabled (hooks active)", flush=True)
 
     # Optimizer — weight_decay MUST be 0
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=0.0)
@@ -130,15 +141,23 @@ def train_run(config, starting_model=None, starting_state=None):
     test_acc_history = []
     recent_losses = []  # for convergence detection
 
+    # Batch size: full-batch for single-task (standard grokking setup),
+    # minibatch for joint training (introduces per-seed variance)
+    batch_size = None  # full-batch
+    if config.task == 'joint':
+        batch_size = min(512, len(add_train_X))
+
     for step in range(config.max_steps):
         model.train()
         optimizer.zero_grad()
 
         if config.task == 'joint':
-            logits_add = model(add_train_X, task='add')
-            loss_add = F.cross_entropy(logits_add, add_train_y)
-            logits_mul = model(mul_train_X, task='mul')
-            loss_mul = F.cross_entropy(logits_mul, mul_train_y)
+            # Minibatch sampling — seed controls the shuffle
+            idx = torch.randperm(len(add_train_X))[:batch_size]
+            logits_add = model(add_train_X[idx], task='add')
+            loss_add = F.cross_entropy(logits_add, add_train_y[idx])
+            logits_mul = model(mul_train_X[idx], task='mul')
+            loss_mul = F.cross_entropy(logits_mul, mul_train_y[idx])
             loss = (loss_add + loss_mul) / 2
         else:
             logits = model(train_X)
