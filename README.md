@@ -190,16 +190,52 @@ of Multi-Task Grokking, 2026), which are inherently resistant to structured prun
 - The gradient-severed improvement, while statistically significant (p=0.028),
   is modest in absolute terms
 
+### 3.4 Stop-Gradient-Assisted Pruning (Experiment B)
+
+**Setup:** Systematically test sever-and-decay as a pruning method. Detach dying
+neurons from the backward pass (they still contribute to the forward pass), apply
+binary decay only to severed neurons. 6 sever fractions (12.5-75%), 2 schedules,
+4 baselines at 3 fractions. 10 seeds, 200 unique runs.
+
+**Result: Sever-and-decay loses to simple pruning.**
+
+| Method (at 50% compression) | Pareto AUC | p vs sever |
+|------------------------------|-----------|------------|
+| Prune + retrain | **35.2** | **0.011** |
+| Scratch W=64 | 30.1 | 0.199 |
+| Sever-and-decay (ramp) | 26.4 | 0.111 |
+| Sever-and-decay (instant) | 21.3 | — |
+| Asymmetric decay | 21.4 | 0.993 |
+| Distillation W=64 | 10.1 | 0.095 |
+
+Simple magnitude pruning + retraining significantly outperforms stop-gradient-
+assisted pruning (p=0.011). Severing the gradient does not improve over standard
+asymmetric decay (p=0.99). The forward-pass contribution of dying neurons does
+not provide useful smoothing for the surviving neurons.
+
+The Experiment A finding that gradient-severing improved Pareto efficiency
+(p=0.028) does not replicate in this broader, properly controlled comparison.
+The earlier result was likely confounded by comparing against asymmetric decay
+(which itself performs poorly) rather than against the right baseline (prune +
+retrain).
+
 ## 5. Conclusion
 
 Asymmetric weight decay creates controllable, directional norm reduction in neural
-networks but does not cause knowledge migration. The shared output pathway
-hypothesized to enable migration instead acts as a gradient-mediated life support
-system that prevents the neuron death necessary for densification. Severing this
-gradient pathway is both necessary and sufficient for neuron death, and produces
-better compression than the standard asymmetric decay approach. Future work should
-explore stop-gradient-based structured pruning methods that explicitly manage the
-tension between the optimizer's preservation instinct and the compression objective.
+networks but does not cause knowledge migration. Across four experimental
+configurations — multi-task two-head, multi-task shared-head, single-task
+densification, and stop-gradient-assisted pruning — the method fails to outperform
+simple magnitude pruning followed by retraining.
+
+The shared output pathway hypothesized to enable migration acts as a gradient-
+mediated life support system that prevents neuron death. Severing this gradient
+does enable neuron death but does not improve compression quality — the surviving
+neurons learn from data regardless.
+
+The strongest baseline is the simplest: prune the lowest-norm neurons, retrain for
+the same number of steps. No gradient manipulation, decay scheduling, or forward-
+pass smoothing improves on this. The optimizer's ability to recover from pruning
+via standard gradient descent on the task data is sufficient.
 
 ## Reproducibility
 
@@ -223,11 +259,14 @@ python experiments/phase2_fallback.py
 # Experiment A: single-task densification (~20 min)
 python experiments/experiment_a.py
 
+# Experiment B: stop-gradient pruning sweep (~100 min)
+python experiments/experiment_b.py
+
 # Run tests
 python -m pytest tests/ -v
 ```
 
-Total compute: ~70 minutes on RTX 5090.
+Total compute: ~170 minutes on RTX 5090.
 
 ## References
 
