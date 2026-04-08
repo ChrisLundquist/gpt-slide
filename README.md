@@ -219,23 +219,61 @@ The earlier result was likely confounded by comparing against asymmetric decay
 (which itself performs poorly) rather than against the right baseline (prune +
 retrain).
 
+### 3.5 Robustness Check: Optimizer and Decay Strength (Experiment C)
+
+**Setup:** Address critical review concerns by testing: (1) SGD vs AdamW to
+determine if adaptive learning rates specifically create the life-support effect,
+(2) stronger decay rates to actually force neuron death, (3) minibatch noise.
+Decoupled decay formula `W *= (1 - rate * mask)` independent of learning rate.
+
+**Result: No viable regime exists for asymmetric-decay-driven migration.**
+
+| Cell | Accuracy | Dead Neurons | Pareto AUC |
+|------|----------|-------------|-----------|
+| AdamW dr=0.0001 | 98.6% | 3.0 | 21.4 |
+| AdamW dr=0.001 | 79.1% | 0.2 | 29.6 |
+| AdamW dr=0.01 | 0.26% | 0.5 | 0.5 |
+| AdamW dr=0.01 + minibatch | 0.71% | 118.7 | 0.7 |
+
+1. **SGD cannot grok modular addition** (0/16 configurations across lr, momentum,
+   and decay rate sweeps). Adaptive learning rates are *necessary* for grokking,
+   not just a confound. The SGD comparison is impossible.
+
+2. **There is no Goldilocks decay rate.** Weak decay (0.0001): optimizer keeps
+   neurons alive. Medium decay (0.001): accuracy degrades but neurons don't die.
+   Strong decay (0.01): model is destroyed. The transition from "optimizer wins"
+   to "model collapses" is abrupt — there is no intermediate regime where neurons
+   die gradually enough for migration while accuracy is preserved.
+
+3. **Minibatch noise makes things worse.** Combined with strong decay, it kills
+   118/128 neurons and accuracy falls to random chance.
+
+4. **Migration score is zero** at every decay rate (SMS = -0.07 ± 1.62, p=0.55).
+
 ## 5. Conclusion
 
 Asymmetric weight decay creates controllable, directional norm reduction in neural
-networks but does not cause knowledge migration. Across four experimental
+networks but does not cause knowledge migration. Across five experimental
 configurations — multi-task two-head, multi-task shared-head, single-task
-densification, and stop-gradient-assisted pruning — the method fails to outperform
-simple magnitude pruning followed by retraining.
+densification, stop-gradient-assisted pruning, and optimizer/decay-strength
+factorial — the method fails to outperform simple magnitude pruning followed by
+retraining.
+
+The negative result is robust to:
+- Optimizer choice (AdamW; SGD cannot grok at all)
+- Decay strength (3 orders of magnitude: 0.0001 to 0.01 per step)
+- Batch size (full-batch and minibatch)
+- Gradient manipulation (severed vs intact)
+- Asymmetric vs uniform decay
 
 The shared output pathway hypothesized to enable migration acts as a gradient-
-mediated life support system that prevents neuron death. Severing this gradient
-does enable neuron death but does not improve compression quality — the surviving
-neurons learn from data regardless.
+mediated life support system that prevents neuron death. When decay is strong
+enough to overcome this (dr >= 0.01), the model collapses entirely — there is no
+intermediate regime of gradual, useful death. The transition from "optimizer
+preserves neurons" to "model destruction" is abrupt, not gradual.
 
-The strongest baseline is the simplest: prune the lowest-norm neurons, retrain for
-the same number of steps. No gradient manipulation, decay scheduling, or forward-
-pass smoothing improves on this. The optimizer's ability to recover from pruning
-via standard gradient descent on the task data is sufficient.
+The strongest baseline remains the simplest: prune the lowest-norm neurons,
+retrain for the same number of steps.
 
 ## Reproducibility
 
@@ -262,11 +300,14 @@ python experiments/experiment_a.py
 # Experiment B: stop-gradient pruning sweep (~100 min)
 python experiments/experiment_b.py
 
+# Experiment C: optimizer × decay strength robustness check (~60 min)
+python experiments/experiment_c.py
+
 # Run tests
 python -m pytest tests/ -v
 ```
 
-Total compute: ~170 minutes on RTX 5090.
+Total compute: ~230 minutes on RTX 5090.
 
 ## References
 
