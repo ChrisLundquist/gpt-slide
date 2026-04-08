@@ -6,18 +6,22 @@
 
 We test whether position-dependent weight decay can cause learned features to
 migrate from heavily-regularized neurons to lightly-regularized neurons in neural
-networks trained on modular arithmetic. Across three experimental configurations
-(multi-task with separate output heads, multi-task with shared output, single-task
-with shared output), we find no evidence of knowledge migration. Surviving neurons
-relearn features from data regardless of whether dying neurons contribute
-activations. In a single-task setting, we discover a "life support" effect: the
-optimizer's gradients through shared output weights actively sustain dying neurons
-rather than transferring their knowledge, and severing this gradient pathway
-*improves* compression efficiency (p=0.028). Asymmetric weight decay is not
-competitive with knowledge distillation or structured magnitude pruning as a
-compression method. Our activation-zeroing causal test provides the first direct
-experimental evidence that feature transfer between neurons does not occur during
-regularization-driven pruning.
+networks trained on modular arithmetic. Across five experimental configurations —
+multi-task with separate output heads, multi-task with shared output, single-task
+densification, stop-gradient-assisted pruning, and optimizer/decay-strength
+factorial — we find no evidence of knowledge migration at any decay strength,
+batch size, or optimizer configuration tested.
+
+The core finding is that **no viable regime exists for gradual neuron death.** At
+weak decay rates, the optimizer's adaptive learning rates keep all neurons alive
+("life support"). At strong decay rates, the model collapses entirely. The
+transition is a cliff, not a slope — there is no intermediate regime where neurons
+die gradually enough for migration to occur while accuracy is preserved.
+Additionally, SGD cannot grok modular addition (0/16 configurations), confirming
+that adaptive learning rates are necessary for grokking, not merely a confound.
+Asymmetric weight decay is not competitive with knowledge distillation or
+structured magnitude pruning. The simplest baseline — prune lowest-norm neurons
+and retrain — is the strongest.
 
 ## 1. Introduction
 

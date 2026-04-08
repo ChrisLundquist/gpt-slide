@@ -1,17 +1,21 @@
-# Experiment Results
+# Detailed Results
+
+See [README.md](README.md) for the paper-format writeup covering all experiments.
+
+This file contains raw numerical results for reference.
 
 ## Phase 1: Kill Gates
 
-### Step 1 — Sanity Check (PASS)
-- 20/20 experts grokked at lambda=0.1 (10 add + 10 mul)
-- Grokking times: 10k-49k steps (add: 18k-49k, mul: 10k-44k)
-- Addition Fourier structure: 72.7% neurons with IPR > 0.2
-- Multiplication: no Fourier-sparse structure (expected for a*b mod p)
-- MLP_cat: 100%/100% immediately after concatenation (two-head model)
+### Step 1 — Sanity Check
+- 20/20 experts grokked at lambda=0.1 (10 add + 10 mul, seeds 42-8192)
+- Grokking times: add 18k-49k steps, mul 10k-44k steps
+- Addition Fourier structure: 72.7% neurons with IPR > 0.2 (93/128)
+- Multiplication: 0% Fourier-sparse (expected for a*b mod p)
+- MLP_cat: 100%/100% immediately (two-head concatenation)
 - MLP_converged: 100%/100% after 10k steps uniform decay
 
-### Step 2 — Asymmetric Decay (Gates 1, 2, 2.5 PASS)
-Settings: alpha=5.0, lambda_base=0.1, 20k steps, 4 seeds
+### Step 2 — Asymmetric Decay
+Settings: alpha=5.0, lambda_base=0.1, 20k steps, 4 seeds, minibatch
 
 | Condition | Add Acc | Mul Acc | Norm Ratio (R/L) |
 |-----------|---------|---------|------------------|
@@ -19,125 +23,52 @@ Settings: alpha=5.0, lambda_base=0.1, 20k steps, 4 seeds
 | Uniform | 99.99% | 100.0% | ~1.0 |
 | Reversed | 92.7% | 99.94% | 1.569 |
 
-- **Gate 1 PASS**: norm ratio 0.694 < 0.7
-- **Gate 2 PASS**: asymmetric 0.694 vs reversed 1.569 (mirror image)
-- **Gate 2.5 PASS**: add 99.9% after zeroing j >= 128
-- Variance calibration: std_lhef = 0.011, SNR = 4.5
+Gates: 1 PASS (0.694 < 0.7), 2 PASS (mirror), 2.5 PASS (99.9% after zeroing)
 
-### Step 3 — Migration vs Relearning (Gate 3 FAIL)
-Settings: same as Step 2 + activation-zeroing/weight-freeze hooks
+### Step 3 — Migration vs Relearning
+Gate 3 FAIL: LHEF effect 0.012 (threshold 0.05), ACC effect -0.012 (threshold 0.05)
 
-| Condition | Add Acc | Mul Acc |
-|-----------|---------|---------|
-| Asymmetric (Step 2) | 99.97% | 97.35% |
-| Asym + activation-zeroed | 99.81% | 99.54% |
-| Asym + weight-frozen | 99.83% | 98.54% |
-| Uniform (Step 2) | 99.99% | 100.0% |
-| Uniform + activation-zeroed | 99.63% | 96.41% |
+## Phase 2 Fallback
 
-**Gate 3 diff-in-diff results:**
-- LHEF effect: 0.012 (threshold 0.05) -- **FAIL**
-- SMS effect: 3.79 (threshold 0.5) -- PASS
-- ACC effect: -0.012 (threshold 0.05) -- **FAIL**
-
-## Interpretation
-
-Per the decision matrix (Gates 1,2,2.5 pass, Gate 3 fail):
-
-> Compaction works, but mechanism is relearning under constraint.
-> Reframe as structured soft pruning. Run Phase 2 fallback.
-
-Asymmetric decay successfully creates directional compaction (kills neurons on the
-high-decay side) and the effect is controllable (reversed gradient produces mirror
-image). However, surviving neurons learn from data, not from dying neurons' activations.
-The dying neurons' forward-pass contributions do not help the surviving neurons
-acquire features — blocking those contributions (activation-zeroing) makes no
-meaningful difference.
-
-## Phase 2 Fallback: Compression Comparison
-
-### Results
-
-| Method | Add Acc | Mul Acc | Effective Width | Wall Time |
-|--------|---------|---------|-----------------|-----------|
-| Asymmetric decay (alpha=5) | 99.97% | 97.35% | ~128 active | ~30s |
-| Distillation T=1 | 99.92% | 99.94% | 128 | 28.6s |
-| Distillation T=2 | 99.90% | 99.85% | 128 | 28.6s |
-| Distillation T=4 | 99.96% | 99.97% | 128 | 28.6s |
-| Structured GMP | 99.97% | 100.0% | 131 | 22.4s |
-
-### Verdict
-
-Asymmetric decay **loses to both baselines** on multiplication accuracy (97.35% vs
-99.94-100%) while using 2x the parameter budget. Structured GMP achieves perfect
-accuracy on both tasks with 131 surviving neurons in less training time.
-
-Per the decision matrix: "If asymmetric decay loses to distillation and structured
-GMP on both tasks: stop entirely."
-
-Asymmetric decay does not lose on *both* tasks (addition is competitive), but the
-multiplication gap is large enough (2.6pp) that the method has no practical
-advantage over simpler alternatives.
-
-## Conclusion
-
-1. **Asymmetric weight decay creates directional compaction** — neurons on the
-   high-decay side lose norm while the low-decay side is preserved. The effect is
-   controllable (reversed gradient produces mirror image).
-
-2. **The mechanism is relearning, not migration** — surviving neurons learn from
-   data regardless of whether dying neurons contribute activations. Gate 3's
-   activation-zeroing test showed no migration effect.
-
-3. **As a compression method, asymmetric decay is not competitive** — both
-   knowledge distillation and structured gradual magnitude pruning achieve better
-   accuracy at lower parameter counts in comparable training time.
-
-4. **The Fourier analysis revealed that multiplication mod p does not produce
-   clean Fourier structure** with one-hot encoding and quadratic activation,
-   limiting the scope of the interpretability framework to addition only.
+| Method | Add Acc | Mul Acc | Width |
+|--------|---------|---------|-------|
+| Asymmetric decay | 99.97% | 97.35% | 256 (half dead) |
+| Distillation T=4 | 99.96% | 99.97% | 128 |
+| Structured GMP | 99.97% | 100.0% | 131 |
 
 ## Experiment A: Single-Task Densification
 
-Tests whether asymmetric decay can densify a grokked addition model using the
-W2 interaction pathway (single output head, single task).
-
-### Results
-
 | Condition | Accuracy | Surviving | Pareto AUC |
 |-----------|----------|-----------|------------|
-| Asymmetric (alpha=5) | 97.91% | 128 | 12.2 |
-| Uniform (baseline) | 99.99% | 128 | 10.6 |
-| Reversed | 97.66% | 128 | 6.3 |
-| Gradient-severed | 98.93% | 116.6 | **18.3** |
-| GMP | 99.99% | 128 | 10.6 |
-| Instant prune | 99.99% | 128 | 10.6 |
-| Scratch W=128 | 99.95% | 128 | **36.3** |
+| Asymmetric | 97.91% | 128 | 12.2 |
+| Uniform | 99.99% | 128 | 10.6 |
+| Gradient-severed | 98.93% | 116.6 | 18.3 |
+| Scratch W=128 | 99.95% | 128 | 36.3 |
 
-### Key Findings
+## Experiment B: Stop-Gradient Pruning
 
-1. **Asymmetric decay did not kill any neurons.** The optimizer's gradient signal
-   is stronger than the decay pressure — it keeps all 128 neurons alive. GMP and
-   instant prune degenerate to uniform (0 neurons to prune).
+At 50% compression (sever 64/128 neurons):
 
-2. **The W2 "teaching signal" is counterproductive.** The gradient-severed condition
-   (which blocks gradient flow through dying neurons' W2 columns) is the only
-   condition that actually reduces neuron count (116 surviving) AND achieves the
-   best Pareto AUC (18.3 vs 12.2 for asymmetric, p=0.028). The W2 interaction
-   keeps dying neurons alive instead of letting them die and forcing consolidation.
+| Method | Pareto AUC | p vs sever |
+|--------|-----------|------------|
+| Prune + retrain | 35.2 | 0.011 |
+| Scratch W=64 | 30.1 | 0.199 |
+| Sever ramp | 26.4 | 0.111 |
+| Sever instant | 21.3 | — |
+| Asymmetric decay | 21.4 | 0.993 |
+| Distillation | 10.1 | 0.095 |
 
-3. **Scratch training dominates.** A fresh W=128 model trained from scratch has
-   Pareto AUC of 36.3 — 3x better than asymmetric decay (p=0.0005). The grokked
-   weight structure is harder to compress than learning fresh.
+## Experiment C: Optimizer x Decay Strength
 
-4. **Asymmetric decay hurts accuracy.** 97.9% vs 99.99% for uniform. The
-   asymmetric gradient damages useful features without consolidating them.
+SGD grokking sweep: 0/16 configurations grokked (50k steps each).
 
-### Interpretation
+AdamW with decoupled decay:
 
-The hypothesis that asymmetric decay can drive feature densification via the
-W2 interaction pathway is **falsified**. The gradient interaction does the
-opposite of what's needed — it sustains dying neurons rather than teaching
-surviving neurons. The only condition that achieves actual neuron death
-(gradient-severed) does so by removing the interaction, confirming it's
-the optimizer fighting the decay, not a teaching signal.
+| Decay Rate | Accuracy | Dead Neurons | Pareto AUC |
+|-----------|----------|-------------|-----------|
+| 0.0001/step | 98.6% | 3.0 | 21.4 |
+| 0.001/step | 79.1% | 0.2 | 29.6 |
+| 0.01/step | 0.26% | 0.5 | 0.5 |
+| 0.01/step + minibatch | 0.71% | 118.7 | 0.7 |
+
+Migration score: -0.07 ± 1.62 (p=0.55, not significant)
